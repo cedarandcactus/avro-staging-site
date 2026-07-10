@@ -1,15 +1,55 @@
 "use client"
 
 import { useCart } from "@/lib/cart-context"
-import { X, Minus, Plus } from "lucide-react"
+import { createCheckout } from "@/app/actions/checkout"
+import { X, Minus, Plus, Loader2 } from "lucide-react"
 import Image from "next/image"
 import Link from "next/link"
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
 
 const BLUE = "var(--avro-blue)"
 
 export function CartDrawer() {
   const { items, isOpen, closeCart, removeItem, updateQuantity, total, itemCount } = useCart()
+  const [isCheckingOut, setIsCheckingOut] = useState(false)
+  const [checkoutError, setCheckoutError] = useState<string | null>(null)
+
+  async function handleCheckout() {
+    if (items.length === 0 || isCheckingOut) return
+    setCheckoutError(null)
+    setIsCheckingOut(true)
+    try {
+      const result = await createCheckout(
+        items.map((item) => ({
+          formulaId: item.formula.id,
+          flavor: item.formula.flavor,
+          variant: item.variant,
+          quantity: item.quantity,
+        })),
+      )
+
+      if (!result.ok) {
+        setCheckoutError(result.error)
+        return
+      }
+
+      // Bypass the store password screen for staging stores.
+      const url = new URL(result.checkoutUrl)
+      url.searchParams.set("channel", "online_store")
+      const checkoutUrl = url.toString()
+
+      // If embedded in an iframe (e.g. the v0 preview), open in a new tab.
+      if (typeof window !== "undefined" && window.self !== window.top) {
+        window.open(checkoutUrl, "_blank", "noopener,noreferrer")
+      } else {
+        window.location.href = checkoutUrl
+      }
+    } catch {
+      setCheckoutError("Something went wrong starting checkout. Please try again.")
+    } finally {
+      setIsCheckingOut(false)
+    }
+  }
 
   // Prevent body scroll when drawer is open
   useEffect(() => {
@@ -222,8 +262,20 @@ export function CartDrawer() {
               <p className="text-[12px] mb-5" style={{ color: "rgba(21,21,21,0.55)" }}>
                 Shipping and taxes calculated at checkout.
               </p>
+              {checkoutError && (
+                <p
+                  className="text-[12px] leading-[1.4] mb-3"
+                  role="alert"
+                  style={{ color: "#b3261e" }}
+                >
+                  {checkoutError}
+                </p>
+              )}
               <button
-                className="w-full inline-flex items-center justify-center font-serif font-black text-[16px] leading-none transition-colors"
+                onClick={handleCheckout}
+                disabled={isCheckingOut}
+                aria-busy={isCheckingOut}
+                className="w-full inline-flex items-center justify-center gap-2 font-serif font-black text-[16px] leading-none transition-colors disabled:opacity-70 disabled:cursor-not-allowed"
                 style={{
                   backgroundColor: "var(--charcoal)",
                   color: "var(--bone)",
@@ -233,15 +285,24 @@ export function CartDrawer() {
                   letterSpacing: "0.01em",
                 }}
                 onMouseEnter={(e) => {
+                  if (isCheckingOut) return
                   e.currentTarget.style.backgroundColor = "var(--bone)"
                   e.currentTarget.style.color = "var(--charcoal)"
                 }}
                 onMouseLeave={(e) => {
+                  if (isCheckingOut) return
                   e.currentTarget.style.backgroundColor = "var(--charcoal)"
                   e.currentTarget.style.color = "var(--bone)"
                 }}
               >
-                Checkout
+                {isCheckingOut ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
+                    Starting checkout…
+                  </>
+                ) : (
+                  "Checkout"
+                )}
               </button>
               <button
                 onClick={closeCart}
